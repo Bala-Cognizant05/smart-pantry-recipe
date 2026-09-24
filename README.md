@@ -98,3 +98,105 @@ export PORT="8080"
 cd frontend
 uv run python main.py
 ```
+
+---
+
+## 🌐 End-to-End Production Deployment & Distribution Guide
+
+Follow these step-by-step instructions to deploy this agent into production on Google Cloud and share it live with end users:
+
+### Step 1: GCP Project Infrastructure Setup
+
+1. **Set your GCP project**:
+   ```bash
+   gcloud config set project YOUR_PROJECT_ID
+   ```
+2. **Enable required Google Cloud APIs**:
+   ```bash
+   gcloud services enable \
+     aiplatform.googleapis.com \
+     datastore.googleapis.com \
+     storage.googleapis.com \
+     run.googleapis.com \
+     cloudbuild.googleapis.com \
+     artifactregistry.googleapis.com
+   ```
+3. **Provision Database & Storage Bucket**:
+   - Create a Firestore Database in Native Mode via Google Cloud Console or CLI.
+   - Create a public Google Cloud Storage bucket for generated dish images and videos:
+     ```bash
+     gsutil mb -l us-central1 gs://smart-pantry-chef-media-YOUR_PROJECT_ID
+     gsutil iam ch allUsers:objectViewer gs://smart-pantry-chef-media-YOUR_PROJECT_ID
+     ```
+
+---
+
+### Step 2: Deploy Agent to Agent Runtime (Vertex AI Reasoning Engine)
+
+1. **Deploy using `agents-cli`**:
+   ```bash
+   agents-cli deploy --manifest agents-cli-manifest.yaml
+   ```
+2. **Note the Deployment Metadata**:
+   The command creates `deployment_metadata.json` containing your `remote_agent_runtime_id`:
+   ```json
+   {
+     "remote_agent_runtime_id": "projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/ENGINE_ID"
+   }
+   ```
+
+---
+
+### Step 3: Grant IAM Permissions to Agent Service Account
+
+Grant the deployed Reasoning Engine Service Account access to Firestore, Cloud Storage, and Vertex AI models:
+
+```bash
+# Get your project service account or runtime service account
+PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format="value(projectNumber)")
+SA_EMAIL="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+# Grant Firestore User role
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/datastore.user"
+
+# Grant Storage Admin role on media bucket
+gcloud storage buckets add-iam-policy-binding gs://smart-pantry-chef-media-YOUR_PROJECT_ID \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/storage.objectAdmin"
+
+# Grant Vertex AI User role
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/aiplatform.user"
+```
+
+---
+
+### Step 4: Deploy Web Chat Frontend to Cloud Run
+
+Deploy the FastAPI proxy frontend (`frontend/`) to Cloud Run so end users can access the web application securely:
+
+1. **Deploy to Cloud Run**:
+   ```bash
+   gcloud run deploy smart-pantry-chef-frontend \
+     --source ./frontend \
+     --region us-central1 \
+     --set-env-vars AGENT_ENGINE_RESOURCE_NAME="projects/PROJECT_NUMBER/locations/us-central1/reasoningEngines/ENGINE_ID",AGENT_DIRECTORY="app" \
+     --allow-unauthenticated
+   ```
+2. **Retrieve Production Public URL**:
+   Cloud Run will output a public HTTPS URL upon deployment success (e.g., `https://smart-pantry-chef-frontend-xyz-uc.a.run.app`).
+
+---
+
+### Step 5: Share Live Application with End Users
+
+1. **Distribute Web URL**: Provide the Cloud Run HTTPS URL to your users.
+2. **User Experience**: Users open the link in any modern web browser to:
+   - Ask for custom recipes tailored to their preferences stored in Memory Bank.
+   - Interact with live A2UI rich recipe cards.
+   - View persistent pantry stock stored in Firestore.
+   - View automatically generated AI dish photos and video clips hosted on Cloud Storage.
+
