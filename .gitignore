@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+demo_raw/
+.env
+lofi_background.wav
+/tmp/
